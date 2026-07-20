@@ -12,7 +12,7 @@ A **source** selects one or more watcher buckets for a device and exposes select
 
 Sources without this option can still be used by active-time and category rules, but cannot create reportable time by themselves. When sources overlap, no source takes precedence. Their fields coexist under `$source.<source-id>.<field>`, and the interval is split wherever any source starts or ends.
 
-The old window stream is now an explicit compatibility input, not an unconditional source. Simple rules use it as activity by default. In Advanced profiles, an unsourced app/title predicate explicitly opts into that shorthand; otherwise window data is loaded only as context for a legacy always-active pattern, or not loaded at all.
+Simple mode generates an ordinary window source that auto-discovers each device's window bucket. It has no special precedence or root fields: its facts are namespaced like every other source, and Simple app/title predicates compile to an explicit reference to it. Advanced profiles can change its fields or buckets, make it context-only, or remove it. Merely having an `aw-watcher-window` bucket never adds coverage.
 
 ## In the UI
 
@@ -62,6 +62,8 @@ Each host is resolved independently. Bucket ownership is checked before querying
 
 Canonical resolution preserves original event intervals. Aggregation by app, title, or category happens only in report summaries, never before enrichment or categorization. On capable servers, stopwatch coverage enters the same pipeline before active-time masking; older servers retain their previous post-mask behavior as a compatibility path.
 
+Reports expose the resolved stream as **activity**. Category and duration summaries work for every source shape. App/title summaries are only a presentation projection from an explicitly configured source that exposes those fields; browser focus likewise uses that source's namespaced `app` fact. If no suitable source exists, those optional summaries are empty rather than causing a window dependency.
+
 ## Compatibility and API impact
 
 This is a query/settings migration, not a datastore migration. Existing buckets, events, watcher APIs, ingestion clients, and SQLite data remain unchanged.
@@ -70,7 +72,9 @@ The server info response adds an optional `capabilities` list. The Query2 HTTP e
 
 Settings add `activity_profiles_v2` and `category_sets_v2` through the existing arbitrary-JSON settings API. Loading old settings creates the v2 model in memory; it is persisted only after an explicit save. Legacy `classes`, the predecessor category set, and AFK settings are refreshed as compatibility projections for older clients. Advanced rules that cannot be represented faithfully project to no rule rather than being silently flattened.
 
-Canonical query builders in WebUI, Python, and Rust add `activity_coverage_sources` and an advanced `legacy_window_mode` (`activity`, `context`, or `none`), which defaults to legacy activity behavior for direct callers. Released servers without namespaced enrichment continue to receive the original window query instead of unsupported Query2 functions. The older `activity_sources`, `background_sources`, `bid_window`, and `bid_afk` inputs remain as deprecated compatibility paths, including root `app`/`title` aliases where old callers require them. New settings emit only coverage sources, and new integrations should use namespaced source fields.
+WebUI, Python, and Rust provide separate source-only v2 builders (`CanonicalQueryParamsV2`/`canonicalEventsV2`, and `CanonicalQueryV2Options`/`try_build_canonical_events_v2` in Rust). They accept explicit coverage, context, and active-time sources and never accept or synthesize `bid_window`, `bid_afk`, `legacy_window_mode`, or root `app`/`title`.
+
+The older desktop builders remain explicit compatibility APIs for released servers and external callers. Their `bid_window`, `bid_afk`, `activity_sources`, `background_sources`, root aliases, and `"window"` report section are not mixed into the v2 path. The WebUI selects the source-only path when capabilities are present and adapts legacy results only at the old-server boundary. New integrations should use v2 builders, namespaced facts, and the generic `"activity"` report section.
 
 Rust's public `QueryError` is now `#[non_exhaustive]` because datastore failures need distinct server-error classification. This is an intentional source-level change for exhaustive downstream matches: integrations must include a wildcard arm. `AdvancedQueryOptions` should likewise be constructed with `..Default::default()` so additive fields remain compatible.
 
