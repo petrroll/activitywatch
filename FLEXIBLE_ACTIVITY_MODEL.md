@@ -12,7 +12,7 @@ A **source** selects one or more watcher buckets for a device and exposes select
 
 Sources without this option can still be used by active-time and category rules, but cannot create reportable time by themselves. When sources overlap, no source takes precedence. Their fields coexist under `$source.<source-id>.<field>`, and the interval is split wherever any source starts or ends.
 
-Simple mode generates an ordinary window source that auto-discovers each device's window bucket. It has no special precedence or root fields: its facts are namespaced like every other source, and Simple app/title predicates compile to an explicit reference to it. Advanced profiles can change its fields or buckets, make it context-only, or remove it. Merely having an `aw-watcher-window` bucket never adds coverage. Profiles persist `source_defaults_version` so older profiles receive this default once while a later explicit removal remains durable.
+Simple mode configures ordinary auto-discovering sources for App & window (coverage), browser tabs (context), and stopwatch (coverage). None has special precedence or root fields: facts are namespaced like every other source, and Simple app/title predicates explicitly reference App & window. Advanced profiles can change fields or buckets, change coverage, or remove any default. Merely having a watcher bucket never adds coverage. Profiles persist `source_defaults_version` so older profiles receive these defaults once while later removals remain durable. AFK and audible-browser checks remain visible active-time inputs rather than category sources.
 
 ## In the UI
 
