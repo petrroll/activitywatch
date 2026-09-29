@@ -7,11 +7,19 @@
 #
 # We recommend creating and activating a Python virtualenv before building.
 # Instructions on how to do this can be found in the guide linked above.
-.PHONY: build install test clean clean_all
+.DEFAULT_GOAL := build
+
+.PHONY: build verify-package-contracts verify-rust-pins install test clean clean_all
 
 SHELL := /usr/bin/env bash
+PYTHON = python3
 
 OS := $(shell uname -s)
+ifneq (,$(filter MINGW% MSYS% CYGWIN%,$(OS)))
+	exe := .exe
+else
+	exe :=
+endif
 
 ifeq ($(TAURI_BUILD),true)
 	SUBMODULES := aw-core aw-client aw-server aw-server-rust aw-watcher-afk aw-watcher-window aw-tauri
@@ -57,20 +65,30 @@ else
 	targetdir := release
 endif
 
+verify-package-contracts:
+	$(PYTHON) scripts/package/check_make_default_goals.py
+
+verify-rust-pins:
+	$(PYTHON) scripts/package/sync_aw_server_rust_pin.py --check
+
 # The `build` target
 # ------------------
 #
 # What it does:
 #  - Installs all the Python modules
 #  - Builds the web UI and bundles it with aw-server
-build: aw-core/.git
+build: verify-package-contracts verify-rust-pins aw-core/.git
 #	needed due to https://github.com/pypa/setuptools/issues/1963
 #	would ordinarily be specified in pyproject.toml, but is not respected due to https://github.com/pypa/setuptools/issues/1963
 	pip install 'setuptools>49.1.1'
 	for module in $(SUBMODULES); do \
 		echo "Building $$module"; \
 		if [ "$$module" = "aw-server-rust" ] && [ "$(TAURI_BUILD)" = "true" ]; then \
-			make --directory=$$module aw-sync SKIP_WEBUI=$(SKIP_WEBUI) || { echo "Error in $$module aw-sync"; exit 2; }; \
+			make --directory=$$module aw-sync SKIP_WEBUI=true || { echo "Error in $$module aw-sync"; exit 2; }; \
+		elif [ "$$module" = "aw-server-rust" ]; then \
+			AW_WEBUI_DIR="$(CURDIR)/aw-server/aw-webui/dist" make --directory=$$module build SKIP_WEBUI=true || { echo "Error in $$module build"; exit 2; }; \
+		elif [ "$$module" = "aw-tauri" ]; then \
+			make --directory=$$module build WEBUI_SOURCE="$(CURDIR)/aw-server/aw-webui" SKIP_WEBUI=$(SKIP_WEBUI) || { echo "Error in $$module build"; exit 2; }; \
 		else \
 			make --directory=$$module build SKIP_WEBUI=$(SKIP_WEBUI) || { echo "Error in $$module build"; exit 2; }; \
 		fi; \
@@ -186,22 +204,44 @@ dist/ActivityWatch.dmg: dist/ActivityWatch.app
 dist/notarize:
 	./scripts/notarize.sh
 
-package:
+package: verify-package-contracts verify-rust-pins
 	rm -rf dist
 	mkdir -p dist/activitywatch
 	for dir in $(PACKAGEABLES); do \
-		make --directory=$$dir package; \
-		cp -r $$dir/dist/$$dir dist/activitywatch; \
+		if [ "$$dir" = "aw-notify" ] && [ -n "$(exe)" ]; then \
+			make --directory=$$dir build; \
+			rm -rf $$dir/dist/aw-notify; \
+			mkdir -p $$dir/dist/aw-notify; \
+			cp $$dir/target/$(targetdir)/aw-notify$(exe) $$dir/dist/aw-notify/aw-notify$(exe); \
+		elif [ "$$dir" = "aw-server-rust" ] && [ -n "$(exe)" ]; then \
+			rm -rf $$dir/dist/aw-server-rust; \
+			mkdir -p $$dir/dist/aw-server-rust; \
+			cp $$dir/target/$(targetdir)/aw-server$(exe) $$dir/dist/aw-server-rust/aw-server-rust$(exe); \
+			cp $$dir/target/$(targetdir)/aw-sync$(exe) $$dir/dist/aw-server-rust/aw-sync$(exe); \
+			cp $$dir/aw-server.service $$dir/dist/aw-server-rust/aw-server.service; \
+		else \
+			make --directory=$$dir package; \
+		fi; \
+		if [ "$$dir" = "aw-tauri" ] && [ -n "$(exe)" ]; then \
+			cp $$dir/dist/aw-tauri$(exe) dist/activitywatch/aw-tauri$(exe); \
+		else \
+			cp -r $$dir/dist/$$dir dist/activitywatch; \
+		fi; \
 	done
 ifeq ($(TAURI_BUILD),true)
 # Copy aw-sync binary for Tauri builds
 	mkdir -p dist/activitywatch/aw-server-rust
-	cp aw-server-rust/target/$(targetdir)/aw-sync dist/activitywatch/aw-server-rust/aw-sync
+	cp aw-server-rust/target/$(targetdir)/aw-sync$(exe) dist/activitywatch/aw-server-rust/aw-sync$(exe)
+	$(PYTHON) scripts/package/smoke_server_capabilities.py --label "embedded aw-tauri server" -- aw-tauri/src-tauri/target/$(targetdir)/aw-tauri$(exe) --daemon --testing --port {port}
 else
 # Move aw-qt to the root of the dist folder
 	mv dist/activitywatch/aw-qt aw-qt-tmp
 	mv aw-qt-tmp/* dist/activitywatch
 	rmdir aw-qt-tmp
+	$(PYTHON) scripts/package/smoke_server_capabilities.py --label "packaged Python server" -- dist/activitywatch/aw-server/aw-server$(exe) --testing --port {port}
+ifneq ($(SKIP_SERVER_RUST),true)
+	$(PYTHON) scripts/package/smoke_server_capabilities.py --label "packaged Rust server" -- dist/activitywatch/aw-server-rust/aw-server-rust$(exe) --testing --port {port} --no-legacy-import
+endif
 endif
 # Remove problem-causing binaries
 	rm -f dist/activitywatch/libdrm.so.2       # see: https://github.com/ActivityWatch/activitywatch/issues/161

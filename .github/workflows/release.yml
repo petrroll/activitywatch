@@ -295,7 +295,9 @@ jobs:
         uses: actions/cache@v6
         if: ${{ !matrix.skip_webui }}
         with:
-          path: aw-server-rust/aw-webui/node_modules
+          path: |
+            aw-server/aw-webui/node_modules
+            aw-server-rust/aw-webui/node_modules
           key: ${{ matrix.os }}-node_modules-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             ${{ matrix.os }}-node_modules-
@@ -508,7 +510,7 @@ jobs:
         if: ${{ !matrix.skip_webui }}
         with:
           path: |
-            aw-server-rust/aw-webui/node_modules
+            aw-server/aw-webui/node_modules
             aw-tauri/node_modules
           key: ${{ matrix.os }}-node_modules-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
